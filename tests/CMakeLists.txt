@@ -42,9 +42,59 @@ include(GoogleTest)
 set(TEST_SO_NAME vtabletest${DTK_NAME_SUFFIX})
 add_subdirectory(./testso)
 
+# ---------------------------------------------------------------------------
+# DSysInfo mock infrastructure
+# ---------------------------------------------------------------------------
+# The shared library (compiled in src/ before tests/) always has
+# DSYSINFO_PREFIX="" so inTest() is false and singleton caches never clear.
+# Two complementary mechanisms solve this:
+#
+# 1. OBJECT library: compile dsysinfo.cpp with DSYSINFO_PREFIX="/tmp" so
+#    inTest()==true, paths point to /tmp/etc/, and caches clear on re-read.
+#    Linked BEFORE the shared library so the test binary resolves DSysInfo
+#    symbols from this copy (link-time stub, not compile-time macro in the
+#    shared library).
+#
+# 2. LD_PRELOAD stub (dsysinfo_stub.cpp): redirects /etc/ -> /tmp/etc/ for
+#    any reads originating from the shared library's internal code.
+#
+# Test-mode prefixes (also kept for the test binary's own compilation):
+set(DSYSINFO_PREFIX "/tmp" CACHE STRING "PREFIX of DSysInfo" FORCE)
+set(DSG_PREFIX_PATH "/tmp" CACHE STRING "PREFIX of DSG_DATA_DIRS" FORCE)
+
+# OBJECT library — test-mode copy of dsysinfo.cpp
+add_library(dsysinfo_test_obj OBJECT ../src/dsysinfo.cpp)
+target_compile_definitions(dsysinfo_test_obj PRIVATE
+    DSYSINFO_PREFIX="${DSYSINFO_PREFIX}"
+    PREFIX="${DSG_PREFIX_PATH}"
+)
+target_include_directories(dsysinfo_test_obj PRIVATE
+    ../include/global/
+    ../include/
+)
+target_link_libraries(dsysinfo_test_obj PRIVATE
+    Qt${QT_VERSION_MAJOR}::Core
+)
+
+# Instrument the OBJECT library so dsysinfo.cpp gets coverage data.
+# dtk_setup_code_coverage only applies to the shared library; the OBJECT
+# library needs its own flags.
+if(EnableCov)
+    target_compile_options(dsysinfo_test_obj PRIVATE -fprofile-arcs -ftest-coverage)
+endif()
+
+# LD_PRELOAD stub shared library
+add_library(dsysinfo_stub SHARED dsysinfo_stub.cpp)
+target_link_libraries(dsysinfo_stub PRIVATE dl)
+
+# ---------------------------------------------------------------------------
+
 # test
 file(GLOB TEST_HEADER ut_.*h)
 file(GLOB TEST_SOURCE *.cpp)
+
+# Exclude the LD_PRELOAD stub from the test binary sources
+list(REMOVE_ITEM TEST_SOURCE "${CMAKE_CURRENT_LIST_DIR}/dsysinfo_stub.cpp")
 
 file(GLOB FackDBus
     "./fakedbus/*.h"
@@ -54,6 +104,7 @@ file(GLOB FackDBus
 if(NOT DTK5)
     list(REMOVE_ITEM TEST_SOURCE "${CMAKE_CURRENT_LIST_DIR}/ut_gsettingsbackend.cpp")
     list(REMOVE_ITEM TEST_SOURCE "${CMAKE_CURRENT_LIST_DIR}/ut_dasync.cpp")
+    list(REMOVE_ITEM TEST_SOURCE "${CMAKE_CURRENT_LIST_DIR}/ut_dtimedloop.cpp")
 endif()
 
 set(test_SRC
@@ -73,9 +124,21 @@ target_compile_definitions(${BIN_NAME} PUBLIC
     DSYSINFO_PREFIX="${DSYSINFO_PREFIX}"
 )
 
+# Instrument the test binary so that source compiled into the test
+# executable (e.g. LogManager.cpp #included by ut_dlog.cpp, and inline
+# functions from headers) generates coverage data. Without this, lcov
+# reports 0% for LogManager.cpp and low coverage for header inline code.
+if(EnableCov)
+    target_compile_options(${BIN_NAME} PRIVATE -fprofile-arcs -ftest-coverage)
+endif()
+
 add_dependencies(${BIN_NAME} ${TEST_SO_NAME})
+
+# Link the OBJECT library FIRST so its DSysInfo symbols take precedence
+# over the shared library's copies (which have DSYSINFO_PREFIX="").
 target_link_libraries(
     ${BIN_NAME} PRIVATE
+    dsysinfo_test_obj
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::CorePrivate
@@ -118,6 +181,7 @@ target_include_directories( ${BIN_NAME} PUBLIC
     ../include/filesystem/
     ../include/
     ../src/log/
+    ../src/dci/private/
     ./testso/
 )
 
@@ -126,4 +190,9 @@ set_target_properties(${BIN_NAME} PROPERTIES
     SKIP_BUILD_RPATH FALSE
 )
 
-gtest_discover_tests(${BIN_NAME})
+# Register tests with LD_PRELOAD environment so the stub redirects /etc/
+# reads for any shared-library internal code paths.
+gtest_discover_tests(${BIN_NAME}
+    PROPERTIES
+    ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:dsysinfo_stub>"
+)

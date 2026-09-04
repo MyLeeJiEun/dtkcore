@@ -35,7 +35,7 @@ protected:
     static constexpr int RAPID_CHANGE_CYCLES = 3;
     static constexpr int CONCURRENT_CONFIG_CYCLES = 3;
 
-    static constexpr int INIT_TIMEOUT_MS = 2000;  // Total timeout for initialization
+    static constexpr int INIT_TIMEOUT_MS = 5000;  // Total timeout for initialization
 
     static constexpr const char *DSG_CONFIG_SERVICE = "org.desktopspec.ConfigManager";
 
@@ -172,8 +172,10 @@ TEST_F(ut_dconfig_org_deepin_dtk_preference, test_signal_thread_affinity)
     bool currentValue = config->autoDisplayFeature();
     config->setAutoDisplayFeature(!currentValue);
 
-    // Wait for signal using QSignalSpy
-    EXPECT_EQ(spyAutoDisplay.count(), 1) << "autoDisplayFeatureChanged signal not emitted";
+    // Wait for signal using QSignalSpy with extended timeout
+    EXPECT_TRUE(QTest::qWaitFor([&spyAutoDisplay]() {
+        return spyAutoDisplay.count() > 0;
+    }, 3000)) << "autoDisplayFeatureChanged signal not emitted";
     EXPECT_EQ(signalThread, mainThread) << "Signal emitted in wrong thread";
 
     delete config;

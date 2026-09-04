@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
+# SPDX-FileCopyrightText: 2023 - 2026 UnionTech Software Technology Co., Ltd.
 #
 # SPDX-License-Identifier: LGPL-3.0-or-later
 set -ex
@@ -24,7 +24,7 @@ cd $BUILD_DIR
 
 # find *.gcda from build dir
 lcov -d ../ -c -o coverage_all.info
-lcov --remove coverage_all.info "*/tests/*" "*/usr/include*" "*build/src*" "*build-ut/src*" --output-file coverage.info
+lcov --remove coverage_all.info "*/tests/*" "*/usr/include*" "*build/src*" "*build-ut/src*" "*/dconfig_org_deepin_dtk_preference.hpp" "*/moc_*.cpp" "*/moc_*.h" "*/qrc_*.cpp" "*/ui_*.h" "*/qml_*.h" "*/qmlcache_*.cpp" "*/_autogen/*" "*_json.h" --output-file coverage.info
 cd ..
 genhtml -o $HTML_DIR $BUILD_DIR/coverage.info && mv ${BUILD_DIR}/html/index.html ${BUILD_DIR}/html/cov_dtkcore.html
 
