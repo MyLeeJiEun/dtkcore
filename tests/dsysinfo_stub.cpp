@@ -2,9 +2,18 @@
 //
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
-// LD_PRELOAD stub that redirects /etc/ and /usr/lib/ file accesses to
-// /tmp/etc/ and /tmp/usr/lib/ so that DSysInfo reads mock fixture files
-// instead of real system files.
+// LD_PRELOAD stub that redirects the specific DSysInfo fixture files
+// (/etc/os-version, /etc/lsb-release, /etc/os-release, /etc/deepin-version,
+// /usr/lib/os-release) to /tmp/etc/ and /tmp/usr/lib/ so that DSysInfo reads
+// mock fixture files instead of real system files.
+//
+// The redirect is intentionally NARROW (exact-path only), NOT all of /etc/:
+// a broad /etc/ redirect breaks unrelated accesses the tests rely on —
+//   * getpwuid()'s /etc/passwd read -> redirected to a non-existent
+//     /tmp/etc/passwd -> null passwd entry -> SEGFAULT in the empty-HOME
+//     DLogManager tests;
+//   * QSaveFile's O_TMPFILE-backed writes (mode arg dropped) -> EACCES in the
+//     DCI FileEngine tests.
 //
 // This stub is compiled as a shared library and loaded via LD_PRELOAD
 // (configured in gtest_discover_tests PROPERTIES ENVIRONMENT).
@@ -23,23 +32,24 @@
 #include <unistd.h>
 #include <errno.h>
 
+// Exact-path redirects only. Returns either `path` or a pointer to a string
+// literal (immutable, reentrant, thread-safe) — never a shared mutable buffer.
 static const char *redirect_path(const char *path)
 {
     if (!path)
         return path;
 
-    // Redirect /etc/... -> /tmp/etc/...
-    if (strncmp(path, "/etc/", 5) == 0 || strcmp(path, "/etc") == 0) {
-        static char buf[4096];
-        snprintf(buf, sizeof(buf), "/tmp%s", path);
-        return buf;
-    }
-    // Redirect /usr/lib/os-release -> /tmp/usr/lib/os-release
-    if (strncmp(path, "/usr/lib/os-release", 19) == 0) {
-        static char buf[4096];
-        snprintf(buf, sizeof(buf), "/tmp%s", path);
-        return buf;
-    }
+    if (strcmp(path, "/etc/os-version") == 0)
+        return "/tmp/etc/os-version";
+    if (strcmp(path, "/etc/lsb-release") == 0)
+        return "/tmp/etc/lsb-release";
+    if (strcmp(path, "/etc/os-release") == 0)
+        return "/tmp/etc/os-release";
+    if (strcmp(path, "/etc/deepin-version") == 0)
+        return "/tmp/etc/deepin-version";
+    if (strcmp(path, "/usr/lib/os-release") == 0)
+        return "/tmp/usr/lib/os-release";
+
     return path;
 }
 
@@ -55,7 +65,9 @@ typedef int (*orig_xstat_t)(int, const char *, struct stat *);
 extern "C" int open(const char *path, int flags, ...)
 {
     mode_t mode = 0;
-    if (flags & O_CREAT) {
+    // mode is significant for O_CREAT AND O_TMPFILE (O_TMPFILE does not set
+    // O_CREAT; dropping it made QSaveFile create 0000-mode files -> EACCES).
+    if (flags & (O_CREAT | O_TMPFILE)) {
         va_list args;
         va_start(args, flags);
         mode = va_arg(args, mode_t);
@@ -68,7 +80,7 @@ extern "C" int open(const char *path, int flags, ...)
 extern "C" int open64(const char *path, int flags, ...)
 {
     mode_t mode = 0;
-    if (flags & O_CREAT) {
+    if (flags & (O_CREAT | O_TMPFILE)) {
         va_list args;
         va_start(args, flags);
         mode = va_arg(args, mode_t);

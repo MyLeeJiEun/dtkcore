@@ -37,6 +37,17 @@ static bool isDConfigServiceAvailable()
 class ut_DLogManager : public testing::Test
 {
 protected:
+    static void SetUpTestCase()
+    {
+        // Prevent DLogManager::initLoggingRules() from creating a DConfig. Its
+        // DBus backend races with the system bus connection and corrupts the
+        // heap (flaky SIGABRT/SIGSEGV at process exit). The getlogFilePath /
+        // appender tests here don't need DConfig, so skip it process-wide.
+        // (ctest drops a second ENVIRONMENT entry, so this can't live in
+        // CMakeLists.txt.)
+        qputenv("DTK_DISABLED_LOGGING_RULES", "1");
+    }
+
     void TearDown() override
     {
         // Unconditionally restore DLogManager singleton state to prevent
@@ -260,6 +271,12 @@ TEST_F(ut_DLogManager, testCreateDConfigWithAppId)
 
 TEST_F(ut_DLogManager, testGetlogFilePathWithOrgAndApp)
 {
+    // Prevent the DLogManager singleton's initLoggingRules() from creating a
+    // DConfig, whose background thread blocks on the DBus daemon and deadlocks
+    // process exit in the test environment. getlogFilePath() only needs DStandardPaths.
+    EnvGuard guard;
+    guard.set("DTK_DISABLED_LOGGING_RULES", "1", false);
+
     // Exercises appendOrganizationAndApp() which appends org/app to cache path
     QString savedOrg = QCoreApplication::organizationName();
     QString savedApp = QCoreApplication::applicationName();
@@ -282,6 +299,11 @@ TEST_F(ut_DLogManager, testGetlogFilePathWithOrgAndApp)
 
 TEST_F(ut_DLogManager, testGetlogFilePathCreatesCacheDir)
 {
+    // Same as testGetlogFilePathWithOrgAndApp: avoid the DConfig singleton's
+    // blocking DBus thread (see comment there).
+    EnvGuard guard;
+    guard.set("DTK_DISABLED_LOGGING_RULES", "1", false);
+
     // Exercises the QDir::mkpath branch in getlogFilePath
     QString savedOrg = QCoreApplication::organizationName();
     QString savedApp = QCoreApplication::applicationName();

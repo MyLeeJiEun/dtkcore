@@ -71,6 +71,7 @@ target_compile_definitions(dsysinfo_test_obj PRIVATE
 target_include_directories(dsysinfo_test_obj PRIVATE
     ../include/global/
     ../include/
+    ${PROJECT_BINARY_DIR}  # generated dtkcore_config.h lives at the build root
 )
 target_link_libraries(dsysinfo_test_obj PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
@@ -79,7 +80,7 @@ target_link_libraries(dsysinfo_test_obj PRIVATE
 # Instrument the OBJECT library so dsysinfo.cpp gets coverage data.
 # dtk_setup_code_coverage only applies to the shared library; the OBJECT
 # library needs its own flags.
-if(EnableCov)
+if(EnableCov OR BUILD_TESTING)
     target_compile_options(dsysinfo_test_obj PRIVATE -fprofile-arcs -ftest-coverage)
 endif()
 
@@ -128,7 +129,7 @@ target_compile_definitions(${BIN_NAME} PUBLIC
 # executable (e.g. LogManager.cpp #included by ut_dlog.cpp, and inline
 # functions from headers) generates coverage data. Without this, lcov
 # reports 0% for LogManager.cpp and low coverage for header inline code.
-if(EnableCov)
+if(EnableCov OR BUILD_TESTING)
     target_compile_options(${BIN_NAME} PRIVATE -fprofile-arcs -ftest-coverage)
 endif()
 
@@ -182,6 +183,8 @@ target_include_directories( ${BIN_NAME} PUBLIC
     ../include/
     ../src/log/
     ../src/dci/private/
+    ../src/util/
+    ../src/filesystem/
     ./testso/
 )
 
@@ -191,8 +194,35 @@ set_target_properties(${BIN_NAME} PROPERTIES
 )
 
 # Register tests with LD_PRELOAD environment so the stub redirects /etc/
-# reads for any shared-library internal code paths.
+# reads for any shared-library internal code paths. (DTK_DISABLED_LOGGING_RULES
+# is set inside ut_dlog.cpp's SetUpTestCase — ctest drops a second ENVIRONMENT
+# entry, so it can't live here.)
 gtest_discover_tests(${BIN_NAME}
     PROPERTIES
     ENVIRONMENT "LD_PRELOAD=$<TARGET_FILE:dsysinfo_stub>"
+)
+
+# ---- coverage: execute all tests and generate a coverage report ----
+find_program(LCOV_BIN lcov)
+find_program(GENHTML_BIN genhtml)
+set(_run_test_coverage "")
+if(LCOV_BIN AND GENHTML_BIN)
+    set(_run_test_coverage
+        COMMAND ${LCOV_BIN} --capture --directory ${CMAKE_BINARY_DIR}
+                --rc lcov_branch_coverage=1 --output-file ${CMAKE_BINARY_DIR}/coverage.info
+        COMMAND ${LCOV_BIN} --extract ${CMAKE_BINARY_DIR}/coverage.info
+                --rc lcov_branch_coverage=1
+                "${PROJECT_SOURCE_DIR}/src/*"
+                --output-file ${CMAKE_BINARY_DIR}/coverage_filtered.info
+        COMMAND ${GENHTML_BIN} ${CMAKE_BINARY_DIR}/coverage_filtered.info
+                --branch-coverage --output-directory ${CMAKE_BINARY_DIR}/coverage_report
+    )
+endif()
+add_custom_target(coverage
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure || true
+    ${_run_test_coverage}
+    DEPENDS ${BIN_NAME}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Run all tests and generate coverage report"
+    VERBATIM
 )

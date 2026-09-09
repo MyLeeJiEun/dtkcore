@@ -1,4 +1,4 @@
-// Copyright (C) 2026 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2026 UnionTech Software Technology Co., Ltd.
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
 // Test: dconfig_org_deepin_dtk_preference crash stability
