@@ -9,6 +9,7 @@
 #include <QTest>
 #include <QSignalSpy>
 #include <QDBusPendingReply>
+#include <QDBusInterface>
 
 using Dtk::Core::DDBusInterface;
 
@@ -25,6 +26,18 @@ public:
             delete m_testservice;
             m_testservice = nullptr;
             GTEST_SKIP() << "Failed to register FakeDBusService on session bus";
+        }
+        // Verify the service is actually accessible via a real D-Bus call.
+        // registerService/registerObject can return true in some CI environments
+        // where the session bus exists but the service is not truly reachable.
+        QDBusInterface validateIface(FakeDBusService::get_service(),
+                                     FakeDBusService::get_path(),
+                                     FakeDBusService::get_interface(),
+                                     QDBusConnection::sessionBus());
+        if (!validateIface.isValid()) {
+            delete m_testservice;
+            m_testservice = nullptr;
+            GTEST_SKIP() << "FakeDBusService registered but not accessible via QDBusInterface";
         }
         m_testDBusInterfaceParent = new FakeDBusServiceParent();
         // if parent is nullptr
