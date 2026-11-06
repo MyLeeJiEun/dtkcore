@@ -21,6 +21,11 @@ public:
             GTEST_SKIP() << "Session bus not available";
         }
         m_testservice = new FakeDBusService();
+        if (!m_testservice->isRegistered()) {
+            delete m_testservice;
+            m_testservice = nullptr;
+            GTEST_SKIP() << "Failed to register FakeDBusService on session bus";
+        }
         m_testDBusInterfaceParent = new FakeDBusServiceParent();
         // if parent is nullptr
         m_testInterface = new DDBusInterface(FakeDBusService::get_service(),
