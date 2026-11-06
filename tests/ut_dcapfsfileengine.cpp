@@ -341,7 +341,13 @@ TEST(ut_DCapFSFileEngine, beginEntryList)
     DCapFSFileEngine engine(dirPath);
     QStringList filters;
     filters << "*.txt";
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 1)
+    auto it = engine.beginEntryList(dirPath, QDirListing::IteratorFlags{}, filters);
+#elif QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     auto it = engine.beginEntryList(dirPath, QDir::Files, filters);
+#else
+    auto it = engine.beginEntryList(QDir::Files, filters);
+#endif
     EXPECT_NE(it, nullptr);
 }
 
